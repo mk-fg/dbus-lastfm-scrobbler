@@ -6,7 +6,9 @@ import argparse
 parser = argparse.ArgumentParser(
 	description='DBus interface to last.fm scrobbling.')
 parser.add_argument('-n', '--dry-run', action='store_true', help='Do not actually send data.')
-parser.add_argument('--dump', action='store_true', help='Dump polled data to stdout.')
+parser.add_argument('--sync', action='store_true',
+	help='Do synchronous submissions and return'
+		' errors/tracebacks on dbus. Can be useful for debugging.')
 parser.add_argument('--debug', action='store_true', help='Verbose operation mode.')
 optz = parser.parse_args()
 
@@ -57,19 +59,27 @@ class DBusLastFM(dbus.service.Object):
 
 	class scrobbler(object):
 		auth, scrobbler = dict(), None
+
 		def __getattr__(self, k):
-			self.func = k
-			return self.call
-		def call(self, *argz, **kwz):
+			return ft.partial(self.async_call if not optz.sync else self.call, k)
+
+		def async_call(self, func, *argz, **kwz):
+			GObject.timeout_add(0, ft.partial(self.call, func, *argz, **kwz))
+
+		def call(self, func, *argz, **kwz):
 			try:
 				if not self.scrobbler:
 					self.scrobbler = pylast.get_lastfm_network(**self.auth)\
 						.get_scrobbler(client_id='emm', client_version='1.0')
-				return getattr(self.scrobbler, self.func)(*argz, **kwz)
+				return getattr(self.scrobbler, func)(*argz, **kwz)
 			except Exception as err:
-				msg = 'Failed to {} track'.format(self.func)
-				if optz.debug: log.exception(msg)
+				msg = 'Failed to {} track'.format(func)
+				if optz.debug:
+					log.exception(msg)
+					log.debug( 'Call data:\n  method:'
+						' {}\n  args: {}\n  keywords: {}'.format(func, argz, kwz) )
 				try_notification(msg, 'Error: {}'.format(err), critical=True)
+
 	scrobbler = scrobbler()
 
 
