@@ -14,7 +14,7 @@ optz = parser.parse_args()
 
 import itertools as it, operator as op, functools as ft
 from dbus.mainloop.glib import DBusGMainLoop
-import dbus, dbus.service
+import dbus, dbus.service, dbus.exceptions
 from gi.repository import GObject
 import os, sys, logging
 
@@ -61,12 +61,16 @@ class DBusLastFM(dbus.service.Object):
 		auth, scrobbler = dict(), None
 
 		def __getattr__(self, k):
+			if k.startswith('_dbus_'): raise AttributeError(k)
+			if not self.auth: raise dbus.exceptions.DBusException('NO-AUTH')
 			return ft.partial(self.async_call if not optz.sync else self.call, k)
 
 		def async_call(self, func, *argz, **kwz):
 			GObject.timeout_add(0, ft.partial(self.call, func, *argz, **kwz))
 
 		def call(self, func, *argz, **kwz):
+			log.debug( 'Scrobbler call -'
+				' {}, args: {}, kwz: {}'.format(func, argz, kwz) )
 			try:
 				if not self.scrobbler:
 					self.scrobbler = pylast.get_lastfm_network(**self.auth)\
@@ -88,14 +92,15 @@ class DBusLastFM(dbus.service.Object):
 
 	@_dbus_method('sss', '')
 	def Auth(self, api_key, api_secret, session_key):
+		log.debug('Got update for API keys')
 		self.scrobbler.auth = dict( api_key=api_key,
 			api_secret=api_secret, session_key=session_key )
 
-	@_dbus_method('sssuu', '')
-	def Scrobble(self, artist, album, title, ts, duration):
+	@_dbus_method('sssud', '')
+	def Scrobble(self, artist, album, title, duration, ts):
 		self.scrobbler.scrobble(
 			artist=artist, album=album, title=title,
-			duration=duration, time_started=ts,
+			duration=duration, time_started=int(ts),
 			source=pylast.SCROBBLE_SOURCE_USER,
 			mode=pylast.SCROBBLE_MODE_PLAYED )
 
