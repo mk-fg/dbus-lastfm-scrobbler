@@ -66,5 +66,10 @@ or from emacs:
         :uint32 duration
         :double (- (float-time) duration))) ;; when track *started* playing
 
+(extended emacs example can be found in [my emacs-setup
+repo](https://github.com/mk-fg/emacs-setup/blob/master/core/fg_emms.el))
+
 Methods and signatures can be looked up in the code, too lazy to add
 introspection atm.
+
+Some available command-line flags can be seen in ./dbus-lastfm-scrobbler.py -h.
