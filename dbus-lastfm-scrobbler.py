@@ -5,6 +5,10 @@ from __future__ import print_function
 import argparse
 parser = argparse.ArgumentParser(
 	description='DBus interface to last.fm scrobbling.')
+parser.add_argument('-t', '--activity-timeout',
+	type=float, default=30, metavar='minutes',
+	help='No-activity (dbus calls) timeout before closing the daemon instance'
+		' (less or equal to zero - infinite, default: %(default)s minutes)')
 parser.add_argument('-n', '--dry-run', action='store_true', help='Do not actually send data.')
 parser.add_argument('--sync', action='store_true',
 	help='Do synchronous submissions and return'
@@ -58,6 +62,9 @@ class DBusLastFM(dbus.service.Object):
 	class scrobbler(object):
 		auth, scrobbler = dict(), None
 
+		def __init__(self):
+			self.activity_event()
+
 		def __getattr__(self, k):
 			if k.startswith('_dbus_'): raise AttributeError(k)
 			if not self.auth: raise dbus.exceptions.DBusException('NO-AUTH')
@@ -69,6 +76,7 @@ class DBusLastFM(dbus.service.Object):
 		def call(self, func, *argz, **kwz):
 			log.debug( 'Scrobbler call -'
 				' {}, args: {}, kwz: {}'.format(func, argz, kwz) )
+			self.activity_event()
 			if optz.dry_run: return
 			try:
 				if not self.scrobbler:
@@ -83,6 +91,16 @@ class DBusLastFM(dbus.service.Object):
 					log.debug( 'Call data:\n  method:'
 						' {}\n  args: {}\n  keywords: {}'.format(func, argz, kwz) )
 				try_notification(msg, 'Error: {}'.format(err), critical=True)
+
+		activity_timer = None
+		def activity_event(self, timeout=None):
+			if timeout is not None:
+				log.debug('Exiting due to inactivity timeout ({}m)'.format(timeout))
+				sys.exit()
+			if self.activity_timer is not None: GObject.source_remove(self.activity_timer)
+			if optz.activity_timeout > 0:
+				self.activity_timer = GObject.timeout_add(
+					int(optz.activity_timeout * 60 * 1000), self.activity_event, optz.activity_timeout )
 
 	scrobbler = scrobbler()
 
