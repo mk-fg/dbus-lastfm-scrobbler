@@ -24,8 +24,10 @@ optz = parser.parse_args()
 import itertools as it, operator as op, functools as ft
 from dbus.mainloop.glib import DBusGMainLoop
 import dbus, dbus.service, dbus.exceptions
-from gi.repository import GObject
 import os, sys, logging
+
+try: from gi.repository import GObject # gtk+ 3.X
+except ImportError: import gobject as GObject # gtk+ 2.X
 
 logging.basicConfig(level=logging.WARNING if not optz.debug else logging.DEBUG)
 log = logging.getLogger('dbus-lastfm')
@@ -35,13 +37,22 @@ _notify_init = False
 def try_notification(title, body, critical=False, timeout=None):
 	global _notify_init
 	try:
-		from gi.repository import Notify
+		try: # gtk+ 3.X
+			from gi.repository import Notify
+			_pynotify = False
+		except ImportError: # gtk+ 2.X
+			import pynotify as Notify
+			_pynotify = True
 		if not _notify_init:
 			Notify.init('dbus-last.fm')
 			_notify_init = True
-		note = Notify.Notification()
-		note.set_properties(summary=title, body=body)
-		if critical: note.set_urgency(Notify.Urgency.CRITICAL)
+		if not _pynotify:
+			note = Notify.Notification()
+			note.set_properties(summary=title, body=body)
+		else:
+			note = Notify.Notification(title, body)
+		if critical: note.set_urgency( Notify.Urgency.CRITICAL
+			if not _pynotify else Notify.URGENCY_CRITICAL )
 		if timeout is not None: note.set_timeout(timeout)
 		note.show()
 	except Exception as err:
