@@ -71,6 +71,7 @@ class DBusLastFM(dbus.service.Object):
 		def call(self, func, *argz, **kwz):
 			log.debug( 'Scrobbler call -'
 				' {}, args: {}, kwz: {}'.format(func, argz, kwz) )
+			if optz.dry_run: return
 			try:
 				if not self.scrobbler:
 					self.scrobbler = pylast.get_lastfm_network(**self.auth)\
