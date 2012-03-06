@@ -5,10 +5,15 @@ from __future__ import print_function
 import argparse
 parser = argparse.ArgumentParser(
 	description='DBus interface to last.fm scrobbling.')
+
 parser.add_argument('-t', '--activity-timeout',
 	type=float, default=30, metavar='minutes',
 	help='No-activity (dbus calls) timeout before closing the daemon instance'
-		' (less or equal to zero - infinite, default: %(default)s minutes)')
+		' (less or equal to zero - infinite, default: %(default)s minutes).')
+parser.add_argument('--default-network', default='lastfm',
+	help='Name of the network to use, unless overidden'
+		' by dbus calls ("lastfm" or "librefm", default: %(default)s).')
+
 parser.add_argument('-n', '--dry-run', action='store_true', help='Do not actually send data.')
 parser.add_argument('--sync', action='store_true',
 	help='Do synchronous submissions and return'
@@ -60,7 +65,10 @@ class DBusLastFM(dbus.service.Object):
 
 
 	class scrobbler(object):
-		auth, scrobbler = dict(), None
+		'This is NOT an abstraction, just a convenient proxy.'
+
+		auth, scrobbler = dict(), None # are set from the outside
+		network = optz.default_network
 
 		def __init__(self):
 			self.activity_event()
@@ -81,7 +89,8 @@ class DBusLastFM(dbus.service.Object):
 			try:
 				if not self.scrobbler:
 					import pylast
-					self.scrobbler = pylast.get_lastfm_network(**self.auth)\
+					network = getattr(pylast, 'get_{}_network'.format(self.network))
+					self.scrobbler = network(**self.auth)\
 						.get_scrobbler(client_id='emm', client_version='1.0')
 				return getattr(self.scrobbler, func)(*argz, **kwz)
 			except Exception as err:
@@ -107,6 +116,11 @@ class DBusLastFM(dbus.service.Object):
 
 	_dbus_method = ft.partial(dbus.service.method, dbus_id)
 	_dbus_signal = ft.partial(dbus.service.signal, dbus_id)
+
+	@_dbus_method('s', '')
+	def SetNetwork(self, network):
+		log.debug('Got update for network (to {})'.format(network))
+		self.scrobbler.network, self.scrobbler.scrobbler = network, None
 
 	@_dbus_method('sss', '')
 	def Auth(self, api_key, api_secret, session_key):
