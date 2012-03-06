@@ -18,8 +18,6 @@ import dbus, dbus.service, dbus.exceptions
 from gi.repository import GObject
 import os, sys, logging
 
-import pylast
-
 logging.basicConfig(level=logging.WARNING if not optz.debug else logging.DEBUG)
 log = logging.getLogger('dbus-lastfm')
 
@@ -74,6 +72,7 @@ class DBusLastFM(dbus.service.Object):
 			if optz.dry_run: return
 			try:
 				if not self.scrobbler:
+					import pylast
 					self.scrobbler = pylast.get_lastfm_network(**self.auth)\
 						.get_scrobbler(client_id='emm', client_version='1.0')
 				return getattr(self.scrobbler, func)(*argz, **kwz)
