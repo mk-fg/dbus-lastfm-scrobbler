@@ -59,6 +59,11 @@ def try_notification(title, body, critical=False, timeout=None):
 		(log.exception if optz.debug else log.info)(
 			'Failed to dispatch desktop-notification: {}'.format(err) )
 
+# pylast doesn't tolerate unicode, although it can be API's fault
+def smart_encode(string, encoding='utf-8'):
+	if isinstance(string, unicode): string = string.encode(encoding)
+	return string
+
 
 class DBusLastFM(dbus.service.Object):
 
@@ -103,6 +108,8 @@ class DBusLastFM(dbus.service.Object):
 					network = getattr(pylast, 'get_{}_network'.format(self.network))
 					self.scrobbler = network(**self.auth)\
 						.get_scrobbler(client_id='emm', client_version='1.0')
+				argz, kwz = map(smart_encode, argz),\
+					dict(it.izip(kwz.viewkeys(), map(smart_encode, kwz.viewvalues())))
 				return getattr(self.scrobbler, func)(*argz, **kwz)
 			except Exception as err:
 				msg = 'Failed to {} track'.format(func)
