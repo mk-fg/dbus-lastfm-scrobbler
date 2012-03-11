@@ -65,6 +65,14 @@ def smart_encode(string, encoding='utf-8'):
 	return string
 
 
+try: import pylast
+except Exception as err:
+	msg = 'Failed to import "pylast" module'
+	if optz.debug: log.exception(msg)
+	try_notification(msg, 'Error: {}'.format(err), critical=True)
+	sys.exit(1)
+
+
 class DBusLastFM(dbus.service.Object):
 
 	dbus_id = 'net.fraggod.DBusLastFM'
@@ -104,7 +112,6 @@ class DBusLastFM(dbus.service.Object):
 			if optz.dry_run: return
 			try:
 				if not self.scrobbler:
-					import pylast
 					network = getattr(pylast, 'get_{}_network'.format(self.network))
 					self.scrobbler = network(**self.auth)\
 						.get_scrobbler(client_id='emm', client_version='1.0')
@@ -148,6 +155,7 @@ class DBusLastFM(dbus.service.Object):
 
 	@_dbus_method('sssud', '')
 	def Scrobble(self, artist, album, title, duration, ts):
+		log.debug('DBus call - scrobble')
 		self.scrobbler.scrobble(
 			artist=artist, album=album, title=title,
 			duration=duration, time_started=int(ts),
@@ -156,6 +164,7 @@ class DBusLastFM(dbus.service.Object):
 
 	@_dbus_method('sssu', '')
 	def ReportNowPlaying(self, artist, album, title, duration):
+		log.debug('DBus call - report_now_playing')
 		self.scrobbler.report_now_playing(
 			artist=artist, album=album, title=title, duration=duration or '' )
 
