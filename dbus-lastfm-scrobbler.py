@@ -18,19 +18,28 @@ parser.add_argument('-n', '--dry-run', action='store_true', help='Do not actuall
 parser.add_argument('--sync', action='store_true',
 	help='Do synchronous submissions and return'
 		' errors/tracebacks on dbus. Can be useful for debugging.')
+parser.add_argument('--socket-timeouts', metavar='min/max', default='10/30',
+	help='Min/max timeout for blocking socket operations in "pylast" module.'
+		' Needed if network or service timeouts frequently, so daemon might get'
+			' flooded with requests and become unresponsive as they pile up.'
+		' Default: %(default)s')
 parser.add_argument('--debug', action='store_true', help='Verbose operation mode.')
 optz = parser.parse_args()
 
 import itertools as it, operator as op, functools as ft
 from dbus.mainloop.glib import DBusGMainLoop
 import dbus, dbus.service, dbus.exceptions
-import os, sys, logging
+import os, sys, socket, logging
 
 try: from gi.repository import GObject # gtk+ 3.X
 except ImportError: import gobject as GObject # gtk+ 2.X
 
 logging.basicConfig(level=logging.WARNING if not optz.debug else logging.DEBUG)
 log = logging.getLogger('dbus-lastfm')
+
+optz.socket_timeouts = tuple(
+	it.imap(float, optz.socket_timeouts.split('/', 1)) )
+socket.setdefaulttimeout(optz.socket_timeouts[1])
 
 
 _notify_init = False
@@ -110,6 +119,7 @@ class DBusLastFM(dbus.service.Object):
 				' {}, args: {}, kwz: {}'.format(func, argz, kwz) )
 			self.activity_event()
 			if optz.dry_run: return
+			to = socket.getdefaulttimeout()
 			try:
 				if not self.scrobbler:
 					network = getattr(pylast, 'get_{}_network'.format(self.network))
@@ -117,14 +127,26 @@ class DBusLastFM(dbus.service.Object):
 						.get_scrobbler(client_id='emm', client_version='1.0')
 				argz, kwz = map(smart_encode, argz),\
 					dict(it.izip(kwz.viewkeys(), map(smart_encode, kwz.viewvalues())))
-				return getattr(self.scrobbler, func)(*argz, **kwz)
-			except Exception as err:
-				msg = 'Failed to {} track'.format(func)
-				if optz.debug:
-					log.exception(msg)
-					log.debug( 'Call data:\n  method:'
-						' {}\n  args: {}\n  keywords: {}'.format(func, argz, kwz) )
-				try_notification(msg, 'Error: {}'.format(err), critical=True)
+				ret = getattr(self.scrobbler, func)(*argz, **kwz) # make the actual call
+				# Move socket timeout halfway towards max (assuming successful network call)
+				socket.setdefaulttimeout(min(
+					optz.socket_timeouts[1], to + float(optz.socket_timeouts[1] - to) / 2 ))
+				return ret
+			except socket.timeout as err:
+				# Move socket timeout halfway towards min
+				# For some reason, socket.create_connection timeout is 2x of the one set here
+				to = max( optz.socket_timeouts[0],
+					to - float(to - optz.socket_timeouts[0]) / 2 )
+				log.debug( 'Detected socket timeout,'
+					' adjusting timeout value to {:.1f}s'.format(to) )
+				socket.setdefaulttimeout(to)
+			except Exception as err: pass
+			msg = 'Failed to {} track'.format(func)
+			if optz.debug:
+				log.exception(msg)
+				log.debug( 'Call data:\n  method:'
+					' {}\n  args: {}\n  keywords: {}'.format(func, argz, kwz) )
+			try_notification(msg, 'Error: {}'.format(err), critical=True)
 
 		activity_timer = None
 		def activity_event(self, timeout=None):
